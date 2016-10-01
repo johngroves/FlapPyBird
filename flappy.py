@@ -1,17 +1,48 @@
 from itertools import cycle
-import random
-import sys
-
+from collections import defaultdict
+import random,sys,os,uuid,pickle,math
+import numpy as np
 import pygame
 from pygame.locals import *
+from multiprocessing import Process, Queue
+from multiprocessing import Pool
+from decimal import *
+import itertools
+
+os.environ["SDL_VIDEODRIVER"] = "dummy"
+
+unique_filename = ''
+global score
+score = 0
+# Q / Reward
+
+q = defaultdict(int)
+#q = pickle.load(open('data/49a95572-3ff5-467c-ab8d-f87f23dce83f_16000_.p', "rb"))
 
 
-FPS = 30
-SCREENWIDTH  = 288
+reward = 0.0
+i = 0
+
+exploration = 0
+
+# Actions: 0 - Don't Flap, 1 - Flap
+actions = [0,1]
+history = []
+
+# Initialize Previous Action
+previous_action = 0
+previous_state = 0
+playerState = ()
+
+# Game Environment Variables
+FPS = 60
+TRIAL = 0
+PIPEGAPSIZE = 100
+SCREENWIDTH = 288
 SCREENHEIGHT = 512
-# amount by which base can maximum shift to left
-PIPEGAPSIZE  = 100 # gap between upper and lower part of pipe
-BASEY        = SCREENHEIGHT * 0.79
+PLAYERCLOCK = 0
+BASEY = SCREENHEIGHT * 0.79
+
 # image, sound and hitmask  dicts
 IMAGES, SOUNDS, HITMASKS = {}, {}, {}
 
@@ -51,10 +82,15 @@ PIPES_LIST = (
 )
 
 
-def main():
-    global SCREEN, FPSCLOCK
+def main(params):
+    global alpha, gamma, epsilon , base, total_score,TRIAL
+    total_score = 0
+    base = 'data/' + str(uuid.uuid4()).split('-')[0]
+    global SCREEN, FPSCLOCK, playerState, unique_filename
+    alpha, gamma, epsilon = params
     pygame.init()
     FPSCLOCK = pygame.time.Clock()
+
     SCREEN = pygame.display.set_mode((SCREENWIDTH, SCREENHEIGHT))
     pygame.display.set_caption('Flappy Bird')
 
@@ -130,6 +166,7 @@ def main():
         showGameOverScreen(crashInfo)
 
 
+
 def showWelcomeAnimation():
     """Shows welcome screen animation of flappy bird"""
     # index of player to blit on screen
@@ -152,21 +189,14 @@ def showWelcomeAnimation():
     playerShmVals = {'val': 0, 'dir': 1}
 
     while True:
-        for event in pygame.event.get():
-            if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
-                pygame.quit()
-                sys.exit()
-            if event.type == KEYDOWN and (event.key == K_SPACE or event.key == K_UP):
-                # make first flap sound and return values for mainGame
-                SOUNDS['wing'].play()
-                return {
-                    'playery': playery + playerShmVals['val'],
-                    'basex': basex,
-                    'playerIndexGen': playerIndexGen,
-                }
+        return {
+            'playery': playery + playerShmVals['val'],
+            'basex': basex,
+            'playerIndexGen': playerIndexGen,
+        }
 
         # adjust playery, playerIndex, basex
-        if (loopIter + 1) % 5 == 0:
+        if (loopIter + 1) % 8 == 0:
             playerIndex = playerIndexGen.next()
         loopIter = (loopIter + 1) % 30
         basex = -((-basex + 4) % baseShift)
@@ -183,11 +213,17 @@ def showWelcomeAnimation():
         FPSCLOCK.tick(FPS)
 
 
+
 def mainGame(movementInfo):
+    global playerHeight,playerState,reward,PLAYERCLOCK, score
+    time_elapsed_since_last_action = 0
+    clock = pygame.time.Clock()
+
     score = playerIndex = loopIter = 0
     playerIndexGen = movementInfo['playerIndexGen']
+    playerHeight = IMAGES['player'][playerIndex].get_height()
+    playerWidth = IMAGES['player'][0].get_width() / 2
     playerx, playery = int(SCREENWIDTH * 0.2), movementInfo['playery']
-
     basex = movementInfo['basex']
     baseShift = IMAGES['base'].get_width() - IMAGES['background'].get_width()
 
@@ -197,8 +233,8 @@ def mainGame(movementInfo):
 
     # list of upper pipes
     upperPipes = [
-        {'x': SCREENWIDTH + 200, 'y': newPipe1[0]['y']},
-        {'x': SCREENWIDTH + 200 + (SCREENWIDTH / 2), 'y': newPipe2[0]['y']},
+        {'x': SCREENWIDTH + 200, 'y': -160},
+        {'x': SCREENWIDTH + 200 + (SCREENWIDTH / 2), 'y': -160 },
     ]
 
     # list of lowerpipe
@@ -216,23 +252,36 @@ def mainGame(movementInfo):
     playerAccY    =   1   # players downward accleration
     playerFlapAcc =  -9   # players speed on flapping
     playerFlapped = False # True when player flaps
+    playerMidPos = playerx + IMAGES['player'][0].get_width() / 2
 
 
     while True:
+        dt = clock.tick()
+        time_elapsed_since_last_action += dt
         for event in pygame.event.get():
             if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
                 pygame.quit()
                 sys.exit()
-            if event.type == KEYDOWN and (event.key == K_SPACE or event.key == K_UP):
+            if event.type == KEYDOWN and (event.key == K_SPACE or event.key == K_UP) and time_elapsed_since_last_action > 100:
+                time_elapsed_since_last_action = 0
                 if playery > -2 * IMAGES['player'][0].get_height():
                     playerVelY = playerFlapAcc
                     playerFlapped = True
                     SOUNDS['wing'].play()
 
+        aboveGround =  int(((SCREENHEIGHT - playery) - (SCREENHEIGHT - BASEY))/ (playerHeight * .5))
+        nextPipeYs = [ p['y'] for p in lowerPipes if p['x'] > playerMidPos]
+        nextPipeXs = [ p['x'] for p in lowerPipes if p['x'] > playerMidPos]
+        nextPipeHeight =  int((SCREENHEIGHT - nextPipeYs[0]) / (playerHeight*.5))
+        nextPipeDistance =  int((nextPipeXs[0] - playerMidPos) / (playerWidth*.5))
+
+        playerState = (aboveGround,nextPipeDistance,playerVelY/2)
         # check for crash here
-        crashTest = checkCrash({'x': playerx, 'y': playery, 'index': playerIndex},
-                               upperPipes, lowerPipes)
+
+        crashTest = checkCrash({'x': playerx, 'y': playery, 'index': playerIndex}, upperPipes, lowerPipes)
+
         if crashTest[0]:
+            reward = 0
             return {
                 'y': playery,
                 'groundCrash': crashTest[1],
@@ -243,13 +292,15 @@ def mainGame(movementInfo):
                 'playerVelY': playerVelY,
             }
 
+
         # check for score
-        playerMidPos = playerx + IMAGES['player'][0].get_width() / 2
         for pipe in upperPipes:
             pipeMidPos = pipe['x'] + IMAGES['pipe'][0].get_width() / 2
             if pipeMidPos <= playerMidPos < pipeMidPos + 4:
                 score += 1
-                SOUNDS['point'].play()
+                reward = 100
+                lowerPipes = lowerPipes[-2:]
+                #SOUNDS['point'].play()
 
         # playerIndex basex change
         if (loopIter + 1) % 3 == 0:
@@ -284,68 +335,48 @@ def mainGame(movementInfo):
         # draw sprites
         SCREEN.blit(IMAGES['background'], (0,0))
 
+
         for uPipe, lPipe in zip(upperPipes, lowerPipes):
             SCREEN.blit(IMAGES['pipe'][0], (uPipe['x'], uPipe['y']))
             SCREEN.blit(IMAGES['pipe'][1], (lPipe['x'], lPipe['y']))
 
         SCREEN.blit(IMAGES['base'], (basex, BASEY))
-        # print score so player overlaps the score
+        # show score so player overlaps the score
         showScore(score)
         SCREEN.blit(IMAGES['player'][playerIndex], (playerx, playery))
-
         pygame.display.update()
         FPSCLOCK.tick(FPS)
+
+        if time_elapsed_since_last_action > 50:
+            decision = act(playerState)
+            time_elapsed_since_last_action = 0
+
+            if decision == 0:
+                pass
+            else:
+                if playery > 2 * IMAGES['player'][0].get_height():
+                    playerVelY = playerFlapAcc
+                    playerFlapped = True
+
 
 
 def showGameOverScreen(crashInfo):
-    """crashes the player down ans shows gameover image"""
-    score = crashInfo['score']
-    playerx = SCREENWIDTH * 0.2
-    playery = crashInfo['y']
-    playerHeight = IMAGES['player'][0].get_height()
-    playerVelY = crashInfo['playerVelY']
-    playerAccY = 2
+    global TRIAL, playerState,reward,history,alpha,gamma,epsilon,base, unique_filename, score, total_score
+    total_score += score
+    TRIAL += 1
+    if TRIAL % 10 == 0:
+        avg_score = total_score / float(TRIAL)
+        unique_filename = 'data/' + str(alpha)+'_'+str(gamma)+'_'+str(epsilon)+'_'+ str(TRIAL) + '_' + str(avg_score) + '_.p'
+        with open(unique_filename, 'wb') as f:
+           pickle.dump(q,f)
 
-    basex = crashInfo['basex']
-
-    upperPipes, lowerPipes = crashInfo['upperPipes'], crashInfo['lowerPipes']
-
-    # play hit and die sounds
-    SOUNDS['hit'].play()
-    if not crashInfo['groundCrash']:
-        SOUNDS['die'].play()
-
-    while True:
-        for event in pygame.event.get():
-            if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
-                pygame.quit()
-                sys.exit()
-            if event.type == KEYDOWN and (event.key == K_SPACE or event.key == K_UP):
-                if playery + playerHeight >= BASEY - 1:
-                    return
-
-        # player y shift
-        if playery + playerHeight < BASEY - 1:
-            playery += min(playerVelY, BASEY - playery - playerHeight)
-
-        # player velocity change
-        if playerVelY < 15:
-            playerVelY += playerAccY
-
-        # draw sprites
-        SCREEN.blit(IMAGES['background'], (0,0))
-
-        for uPipe, lPipe in zip(upperPipes, lowerPipes):
-            SCREEN.blit(IMAGES['pipe'][0], (uPipe['x'], uPipe['y']))
-            SCREEN.blit(IMAGES['pipe'][1], (lPipe['x'], lPipe['y']))
-
-        SCREEN.blit(IMAGES['base'], (basex, BASEY))
-        showScore(score)
-        SCREEN.blit(IMAGES['player'][1], (playerx,playery))
-
-        FPSCLOCK.tick(FPS)
-        pygame.display.update()
-
+    if TRIAL > 20:
+        sys.exit()
+        pygame.quit()
+    history = []
+    FPSCLOCK.tick(FPS)
+    pygame.display.update()
+    return
 
 def playerShm(playerShm):
     """oscillates the value of playerShm['val'] between 8 and -8"""
@@ -367,15 +398,15 @@ def getRandomPipe():
     pipeX = SCREENWIDTH + 10
 
     return [
-        {'x': pipeX, 'y': gapY - pipeHeight},  # upper pipe
-        {'x': pipeX, 'y': gapY + PIPEGAPSIZE}, # lower pipe
+        {'x': pipeX, 'y': -160 },  # upper pipe
+        {'x': pipeX, 'y': 300 }, # lower pipe
     ]
 
 
 def showScore(score):
     """displays score in center of screen"""
     scoreDigits = [int(x) for x in list(str(score))]
-    totalWidth = 0 # total width of all numbers to be printed
+    totalWidth = 0 # total width of all numbers to be shown
 
     for digit in scoreDigits:
         totalWidth += IMAGES['numbers'][digit].get_width()
@@ -388,7 +419,8 @@ def showScore(score):
 
 
 def checkCrash(player, upperPipes, lowerPipes):
-    """returns True if player collders with base or pipes."""
+    global reward,playerState
+    """returxns True if player collders with base or pipes."""
     pi = player['index']
     player['w'] = IMAGES['player'][0].get_width()
     player['h'] = IMAGES['player'][0].get_height()
@@ -397,7 +429,6 @@ def checkCrash(player, upperPipes, lowerPipes):
     if player['y'] + player['h'] >= BASEY - 1:
         return [True, True]
     else:
-
         playerRect = pygame.Rect(player['x'], player['y'],
                       player['w'], player['h'])
         pipeW = IMAGES['pipe'][0].get_width()
@@ -447,5 +478,49 @@ def getHitmask(image):
             mask[x].append(bool(image.get_at((x,y))[3]))
     return mask
 
+def getQ():
+    path = 'data'
+    filenames = next(os.walk('data'))[2]
+    pAvg = defaultdict(int)
+
+    for pick in filenames:
+        pick = pickle.load(open(path+'/'+pick, "rb"))
+        for k,v in pick.items():
+            pAvg[k] += pick[k]
+
+    return pAvg
+
+
+def act(state):
+    global q, actions, exploration,previous_action,reward,unique_filename,i, previous_state, history
+
+    options = [ q[(state,act)] for act in actions ]
+    best_option = max(options)
+    best_action = actions[options.index(best_option)]
+    #print ['%.16f' % n for n in options ], state, exploration
+
+    possible_actions = [ a for a in actions]
+    possible_actions.append(best_action)
+
+    action_weights = [(exploration * .5),(exploration * .5),(1 - exploration)]
+    action = np.random.choice(possible_actions,p=action_weights)
+    q[(previous_state, previous_action)] += alpha * (reward + (gamma * q[(state,action)]) - q[(previous_state, previous_action)])
+    state_action = [(state, action)]
+    history.append(state_action)
+
+    previous_action = action
+    previous_state = state
+    exploration = math.exp(-TRIAL/epsilon)
+
+    return action
+
+
 if __name__ == '__main__':
-    main()
+    alphas = [ 0.20, 0.25, 0.30, 0.50, 0.70 ]
+    gammas = [ 0.95, 0.90, 0.80, 0.70, 0.60, 0.50, 0.40]
+    epsilons = [ 100000, 50000, 30000, 20000, 10000 ]
+    params = [ alphas, gammas, epsilons]
+    param_grid = list(itertools.product(*params))
+    p = Pool(30)
+    p.map(main,param_grid)
+
