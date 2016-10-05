@@ -8,8 +8,9 @@ from multiprocessing import Process, Queue
 from multiprocessing import Pool
 from decimal import *
 import itertools
+import os
 
-os.environ["SDL_VIDEODRIVER"] = "dummy"
+#os.environ["SDL_VIDEODRIVER"] = "dummy"
 
 unique_filename = ''
 global score
@@ -17,7 +18,7 @@ score = 0
 # Q / Reward
 
 q = defaultdict(int)
-#q = pickle.load(open('data/49a95572-3ff5-467c-ab8d-f87f23dce83f_16000_.p', "rb"))
+q = pickle.load(open('cloud_data/data/0.7_0.95_10000_20000_0.5033_.p', "rb"))
 
 
 reward = 0.0
@@ -35,7 +36,7 @@ previous_state = 0
 playerState = ()
 
 # Game Environment Variables
-FPS = 60
+FPS = 30
 TRIAL = 0
 PIPEGAPSIZE = 100
 SCREENWIDTH = 288
@@ -83,11 +84,13 @@ PIPES_LIST = (
 
 
 def main(params):
-    global alpha, gamma, epsilon , base, total_score,TRIAL
+    global alpha, gamma, epsilon , base, total_score,TRIAL,q_val,q
     total_score = 0
     base = 'data/' + str(uuid.uuid4()).split('-')[0]
     global SCREEN, FPSCLOCK, playerState, unique_filename
-    alpha, gamma, epsilon = params
+    alpha, gamma, epsilon, q_val = params
+    print "QVAL:", q_val
+    q = pickle.load(open(q_val, "rb"))
     pygame.init()
     FPSCLOCK = pygame.time.Clock()
 
@@ -164,6 +167,9 @@ def main(params):
         movementInfo = showWelcomeAnimation()
         crashInfo = mainGame(movementInfo)
         showGameOverScreen(crashInfo)
+
+        if TRIAL > 10:
+            return float(total_score) / 10
 
 
 
@@ -347,7 +353,7 @@ def mainGame(movementInfo):
         pygame.display.update()
         FPSCLOCK.tick(FPS)
 
-        if time_elapsed_since_last_action > 50:
+        if time_elapsed_since_last_action > 100:
             decision = act(playerState)
             time_elapsed_since_last_action = 0
 
@@ -361,22 +367,21 @@ def mainGame(movementInfo):
 
 
 def showGameOverScreen(crashInfo):
-    global TRIAL, playerState,reward,history,alpha,gamma,epsilon,base, unique_filename, score, total_score
+    global TRIAL, playerState,reward,history,alpha,gamma,epsilon,base, unique_filename, score, total_score, q_val
     total_score += score
     TRIAL += 1
     if TRIAL % 10 == 0:
         avg_score = total_score / float(TRIAL)
-        unique_filename = 'data/' + str(alpha)+'_'+str(gamma)+'_'+str(epsilon)+'_'+ str(TRIAL) + '_' + str(avg_score) + '_.p'
+        #unique_filename = 'data/' + str(alpha)+'_'+str(gamma)+'_'+str(epsilon)+'_'+ str(TRIAL) + '_' + str(avg_score) + '_.p'
+        unique_filename =  str(q_val) + '_' + str(avg_score) + '_.p'
         with open(unique_filename, 'wb') as f:
            pickle.dump(q,f)
 
     if TRIAL > 20:
-        sys.exit()
-        pygame.quit()
-    history = []
-    FPSCLOCK.tick(FPS)
-    pygame.display.update()
-    return
+        history = []
+        FPSCLOCK.tick(FPS)
+        pygame.display.update()
+        return
 
 def playerShm(playerShm):
     """oscillates the value of playerShm['val'] between 8 and -8"""
@@ -510,17 +515,32 @@ def act(state):
 
     previous_action = action
     previous_state = state
-    exploration = math.exp(-TRIAL/epsilon)
+    exploration = 0 #math.exp(-TRIAL/epsilon)
 
     return action
 
 
 if __name__ == '__main__':
+    testing = False
     alphas = [ 0.20, 0.25, 0.30, 0.50, 0.70 ]
     gammas = [ 0.95, 0.90, 0.80, 0.70, 0.60, 0.50, 0.40]
     epsilons = [ 100000, 50000, 30000, 20000, 10000 ]
     params = [ alphas, gammas, epsilons]
     param_grid = list(itertools.product(*params))
-    p = Pool(30)
-    p.map(main,param_grid)
+    p = Pool(10)
+    #p.map(main,param_grid)
+    params = (0,0,20000,'cloud_data/data/0.7_0.95_10000_20000_0.5033_.p')
 
+    if testing:
+        import os
+        scores = []
+        cloud_data = next(os.walk('cloud_data/data'))[2]
+        for q_values in cloud_data:
+            params = (0,0,0,'cloud_data/data/'+q_values)
+            score = main(params)
+            line = q_values + 'SCORE:' + str(score)
+            scores.append(line)
+        print scores
+
+    else:
+        main(params)
