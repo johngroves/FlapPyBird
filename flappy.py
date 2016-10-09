@@ -14,11 +14,12 @@ import os
 
 unique_filename = ''
 global score
+total_score = 0
 score = 0
 # Q / Reward
 
 q = defaultdict(int)
-q = pickle.load(open('cloud_data/data/0.7_0.95_10000_20000_0.5033_.p', "rb"))
+#q = pickle.load(open('cloud_data/data/0.7_0.95_10000_20000_0.5033_.p', "rb"))
 
 
 reward = 0.0
@@ -36,7 +37,7 @@ previous_state = 0
 playerState = ()
 
 # Game Environment Variables
-FPS = 30
+FPS = 60
 TRIAL = 0
 PIPEGAPSIZE = 100
 SCREENWIDTH = 288
@@ -84,13 +85,14 @@ PIPES_LIST = (
 
 
 def main(params):
-    global alpha, gamma, epsilon , base, total_score,TRIAL,q_val,q
+    global alpha, gamma, epsilon , base, total_score,TRIAL,q
     total_score = 0
     base = 'data/' + str(uuid.uuid4()).split('-')[0]
     global SCREEN, FPSCLOCK, playerState, unique_filename
-    alpha, gamma, epsilon, q_val = params
-    print "QVAL:", q_val
-    q = pickle.load(open(q_val, "rb"))
+    alpha, gamma, epsilon  = params
+    q_val = "_%s_%s_%s_" % (alpha, gamma, TRIAL)
+    print q_val
+
     pygame.init()
     FPSCLOCK = pygame.time.Clock()
 
@@ -168,10 +170,6 @@ def main(params):
         crashInfo = mainGame(movementInfo)
         showGameOverScreen(crashInfo)
 
-        if TRIAL > 10:
-            return float(total_score) / 10
-
-
 
 def showWelcomeAnimation():
     """Shows welcome screen animation of flappy bird"""
@@ -238,9 +236,11 @@ def mainGame(movementInfo):
     newPipe2 = getRandomPipe()
 
     # list of upper pipes
+
+    # list of upper pipes
     upperPipes = [
-        {'x': SCREENWIDTH + 200, 'y': -160},
-        {'x': SCREENWIDTH + 200 + (SCREENWIDTH / 2), 'y': -160 },
+        {'x': SCREENWIDTH + 200, 'y': newPipe1[0]['y']},
+        {'x': SCREENWIDTH + 200 + (SCREENWIDTH / 2), 'y': newPipe2[0]['y']},
     ]
 
     # list of lowerpipe
@@ -281,7 +281,7 @@ def mainGame(movementInfo):
         nextPipeHeight =  int((SCREENHEIGHT - nextPipeYs[0]) / (playerHeight*.5))
         nextPipeDistance =  int((nextPipeXs[0] - playerMidPos) / (playerWidth*.5))
 
-        playerState = (aboveGround,nextPipeDistance,playerVelY/2)
+        playerState = (aboveGround,nextPipeDistance,nextPipeHeight,playerVelY/2)
         # check for crash here
 
         crashTest = checkCrash({'x': playerx, 'y': playery, 'index': playerIndex}, upperPipes, lowerPipes)
@@ -353,7 +353,7 @@ def mainGame(movementInfo):
         pygame.display.update()
         FPSCLOCK.tick(FPS)
 
-        if time_elapsed_since_last_action > 100:
+        if time_elapsed_since_last_action > 80:
             decision = act(playerState)
             time_elapsed_since_last_action = 0
 
@@ -370,14 +370,15 @@ def showGameOverScreen(crashInfo):
     global TRIAL, playerState,reward,history,alpha,gamma,epsilon,base, unique_filename, score, total_score, q_val
     total_score += score
     TRIAL += 1
-    if TRIAL % 10 == 0:
+    if TRIAL % 1000 == 0:
         avg_score = total_score / float(TRIAL)
+        total_score = 0
         #unique_filename = 'data/' + str(alpha)+'_'+str(gamma)+'_'+str(epsilon)+'_'+ str(TRIAL) + '_' + str(avg_score) + '_.p'
-        unique_filename =  str(q_val) + '_' + str(avg_score) + '_.p'
+        unique_filename =  q_val + '_' + str(avg_score) + '_.p'
         with open(unique_filename, 'wb') as f:
            pickle.dump(q,f)
 
-    if TRIAL > 20:
+    if exploration < 0.03:
         history = []
         FPSCLOCK.tick(FPS)
         pygame.display.update()
@@ -403,8 +404,8 @@ def getRandomPipe():
     pipeX = SCREENWIDTH + 10
 
     return [
-        {'x': pipeX, 'y': -160 },  # upper pipe
-        {'x': pipeX, 'y': 300 }, # lower pipe
+        {'x': pipeX, 'y': gapY - pipeHeight},  # upper pipe
+        {'x': pipeX, 'y': gapY + PIPEGAPSIZE},  # lower pipe
     ]
 
 
@@ -503,7 +504,7 @@ def act(state):
     best_option = max(options)
     best_action = actions[options.index(best_option)]
     #print ['%.16f' % n for n in options ], state, exploration
-
+    print state, epsilon
     possible_actions = [ a for a in actions]
     possible_actions.append(best_action)
 
@@ -515,32 +516,33 @@ def act(state):
 
     previous_action = action
     previous_state = state
-    exploration = 0 #math.exp(-TRIAL/epsilon)
+    exploration = math.exp(-TRIAL/epsilon)
 
     return action
 
 
 if __name__ == '__main__':
     testing = False
-    alphas = [ 0.20, 0.25, 0.30, 0.50, 0.70 ]
-    gammas = [ 0.95, 0.90, 0.80, 0.70, 0.60, 0.50, 0.40]
-    epsilons = [ 100000, 50000, 30000, 20000, 10000 ]
+    alphas = [ 0.25, 0.50, 0.70 ]
+    gammas = [ 1.0, 0.95 ]
+    epsilons = [ 2000000.0 ]
     params = [ alphas, gammas, epsilons]
     param_grid = list(itertools.product(*params))
-    p = Pool(10)
-    #p.map(main,param_grid)
-    params = (0,0,20000,'cloud_data/data/0.7_0.95_10000_20000_0.5033_.p')
+    p = Pool(8)
+    p.map(main,param_grid)
 
-    if testing:
-        import os
-        scores = []
-        cloud_data = next(os.walk('cloud_data/data'))[2]
-        for q_values in cloud_data:
-            params = (0,0,0,'cloud_data/data/'+q_values)
-            score = main(params)
-            line = q_values + 'SCORE:' + str(score)
-            scores.append(line)
-        print scores
-
-    else:
-        main(params)
+    # params = (0,0,20000,'cloud_data/data/0.7_0.95_10000_20000_0.5033_.p')
+    #
+    # if testing:
+    #     import os
+    #     scores = []
+    #     cloud_data = next(os.walk('cloud_data/data'))[2]
+    #     for q_values in cloud_data:
+    #         params = (0,0,0,'cloud_data/data/'+q_values)
+    #         score = main(params)
+    #         line = q_values + 'SCORE:' + str(score)
+    #         scores.append(line)
+    #     print scores
+    #
+    # else:
+    #     main(params)
