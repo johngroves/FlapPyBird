@@ -10,12 +10,13 @@ from decimal import *
 import itertools
 import os
 
-#os.environ["SDL_VIDEODRIVER"] = "dummy"
+os.environ["SDL_VIDEODRIVER"] = "dummy"
 
 unique_filename = ''
 global score
 total_score = 0
 score = 0
+q_val = ''
 # Q / Reward
 
 q = defaultdict(int)
@@ -85,13 +86,13 @@ PIPES_LIST = (
 
 
 def main(params):
-    global alpha, gamma, epsilon , base, total_score,TRIAL,q
+    global alpha, gamma, epsilon , base, total_score,TRIAL,q, q_val
     total_score = 0
     base = 'data/' + str(uuid.uuid4()).split('-')[0]
     global SCREEN, FPSCLOCK, playerState, unique_filename
     alpha, gamma, epsilon  = params
     q_val = "_%s_%s_%s_" % (alpha, gamma, TRIAL)
-    print q_val
+    #print q_val
 
     pygame.init()
     FPSCLOCK = pygame.time.Clock()
@@ -353,7 +354,7 @@ def mainGame(movementInfo):
         pygame.display.update()
         FPSCLOCK.tick(FPS)
 
-        if time_elapsed_since_last_action > 80:
+        if time_elapsed_since_last_action > 100:
             decision = act(playerState)
             time_elapsed_since_last_action = 0
 
@@ -374,7 +375,7 @@ def showGameOverScreen(crashInfo):
         avg_score = total_score / float(TRIAL)
         total_score = 0
         #unique_filename = 'data/' + str(alpha)+'_'+str(gamma)+'_'+str(epsilon)+'_'+ str(TRIAL) + '_' + str(avg_score) + '_.p'
-        unique_filename =  q_val + '_' + str(avg_score) + '_.p'
+        unique_filename =  'full_data/' + q_val + '_' + str(avg_score) + '_.p'
         with open(unique_filename, 'wb') as f:
            pickle.dump(q,f)
 
@@ -504,7 +505,7 @@ def act(state):
     best_option = max(options)
     best_action = actions[options.index(best_option)]
     #print ['%.16f' % n for n in options ], state, exploration
-    print state, epsilon
+    #print state, epsilon
     possible_actions = [ a for a in actions]
     possible_actions.append(best_action)
 
