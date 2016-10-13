@@ -10,7 +10,7 @@ from decimal import *
 import itertools
 import os
 
-os.environ["SDL_VIDEODRIVER"] = "dummy"
+#os.environ["SDL_VIDEODRIVER"] = "dummy"
 
 unique_filename = ''
 global score
@@ -20,7 +20,7 @@ q_val = ''
 # Q / Reward
 
 q = defaultdict(int)
-#q = pickle.load(open('cloud_data/data/0.7_0.95_10000_20000_0.5033_.p', "rb"))
+q = pickle.load(open('data/_0.25_1.0_0__0.00103703703704_.p', "rb"))
 
 
 reward = 0.0
@@ -86,6 +86,7 @@ PIPES_LIST = (
 
 
 def main(params):
+    pygame.mixer.quit()
     global alpha, gamma, epsilon , base, total_score,TRIAL,q, q_val
     total_score = 0
     base = 'data/' + str(uuid.uuid4()).split('-')[0]
@@ -121,17 +122,6 @@ def main(params):
     # base (ground) sprite
     IMAGES['base'] = pygame.image.load('assets/sprites/base.png').convert_alpha()
 
-    # sounds
-    if 'win' in sys.platform:
-        soundExt = '.wav'
-    else:
-        soundExt = '.ogg'
-
-    SOUNDS['die']    = pygame.mixer.Sound('assets/audio/die' + soundExt)
-    SOUNDS['hit']    = pygame.mixer.Sound('assets/audio/hit' + soundExt)
-    SOUNDS['point']  = pygame.mixer.Sound('assets/audio/point' + soundExt)
-    SOUNDS['swoosh'] = pygame.mixer.Sound('assets/audio/swoosh' + soundExt)
-    SOUNDS['wing']   = pygame.mixer.Sound('assets/audio/wing' + soundExt)
 
     while True:
         # select random background sprites
@@ -274,7 +264,7 @@ def mainGame(movementInfo):
                 if playery > -2 * IMAGES['player'][0].get_height():
                     playerVelY = playerFlapAcc
                     playerFlapped = True
-                    SOUNDS['wing'].play()
+
 
         aboveGround =  int(((SCREENHEIGHT - playery) - (SCREENHEIGHT - BASEY))/ (playerHeight * .5))
         nextPipeYs = [ p['y'] for p in lowerPipes if p['x'] > playerMidPos]
@@ -307,7 +297,7 @@ def mainGame(movementInfo):
                 score += 1
                 reward = 100
                 lowerPipes = lowerPipes[-2:]
-                #SOUNDS['point'].play()
+
 
         # playerIndex basex change
         if (loopIter + 1) % 3 == 0:
@@ -504,7 +494,7 @@ def act(state):
     options = [ q[(state,act)] for act in actions ]
     best_option = max(options)
     best_action = actions[options.index(best_option)]
-    #print ['%.16f' % n for n in options ], state, exploration
+    print ['%.16f' % n for n in options ], state, exploration
     #print state, epsilon
     possible_actions = [ a for a in actions]
     possible_actions.append(best_action)
@@ -517,7 +507,7 @@ def act(state):
 
     previous_action = action
     previous_state = state
-    exploration = math.exp(-TRIAL/epsilon)
+    exploration = 0#math.exp(-TRIAL/epsilon)
 
     return action
 
@@ -529,8 +519,9 @@ if __name__ == '__main__':
     epsilons = [ 2000000.0 ]
     params = [ alphas, gammas, epsilons]
     param_grid = list(itertools.product(*params))
-    p = Pool(8)
-    p.map(main,param_grid)
+    main(param_grid[0])
+    #p = Pool(8)
+    #p.map(main,param_grid)
 
     # params = (0,0,20000,'cloud_data/data/0.7_0.95_10000_20000_0.5033_.p')
     #
