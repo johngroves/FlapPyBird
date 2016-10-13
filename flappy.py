@@ -512,7 +512,7 @@ def act(state):
     options = [ q[(state,act)] for act in actions ]
     best_option = max(options)
     best_action = actions[options.index(best_option)]
-    print ['%.16f' % n for n in options ], state, exploration
+    #print ['%.16f' % n for n in options ], state, exploration
     #print state, epsilon
     possible_actions = [ a for a in actions]
     possible_actions.append(best_action)
