@@ -9,8 +9,11 @@ from multiprocessing import Pool
 from decimal import *
 import itertools
 import os
+import boto3
+import json
+client = boto3.client('firehose')
 
-#os.environ["SDL_VIDEODRIVER"] = "dummy"
+os.environ["SDL_VIDEODRIVER"] = "dummy"
 
 unique_filename = ''
 global score
@@ -20,7 +23,7 @@ q_val = ''
 # Q / Reward
 
 q = defaultdict(int)
-q = pickle.load(open('data/_0.25_1.0_0__0.00103703703704_.p', "rb"))
+#q = pickle.load(open('data/_0.25_1.0_0__0.00103703703704_.p', "rb"))
 
 
 reward = 0.0
@@ -358,9 +361,24 @@ def mainGame(movementInfo):
 
 
 def showGameOverScreen(crashInfo):
-    global TRIAL, playerState,reward,history,alpha,gamma,epsilon,base, unique_filename, score, total_score, q_val
+    global TRIAL, playerState,reward,history,alpha,gamma,epsilon,base, unique_filename, score, total_score, q_val, exploration
     total_score += score
     TRIAL += 1
+    data = {
+        "score" : score,
+        "trial" : TRIAL,
+        "alpha" : str(alpha),
+        "gamma" : str(gamma),
+        "epsilon" : str(epsilon),
+        "exploration" : exploration
+    }
+    data = json.dumps(data)
+    response = client.put_record(
+        DeliveryStreamName='flappy-bird-stream',
+        Record={
+            'Data': data
+        }
+    )
     if TRIAL % 1000 == 0:
         avg_score = total_score / float(TRIAL)
         total_score = 0
@@ -507,21 +525,20 @@ def act(state):
 
     previous_action = action
     previous_state = state
-    exploration = 0#math.exp(-TRIAL/epsilon)
+    exploration = math.exp(-TRIAL/epsilon)
 
     return action
 
 
 if __name__ == '__main__':
     testing = False
-    alphas = [ 0.25, 0.50, 0.70 ]
+    alphas = [ 0.25, 0.30, 0.10 ]
     gammas = [ 1.0, 0.95 ]
     epsilons = [ 2000000.0 ]
     params = [ alphas, gammas, epsilons]
     param_grid = list(itertools.product(*params))
-    main(param_grid[0])
-    #p = Pool(8)
-    #p.map(main,param_grid)
+    p = Pool(4)
+    p.map(main,param_grid)
 
     # params = (0,0,20000,'cloud_data/data/0.7_0.95_10000_20000_0.5033_.p')
     #
